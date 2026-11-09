@@ -165,3 +165,85 @@ La ventana original es compatible porque está dentro de lo que permite la físi
 ## Pregunta central: ¿por qué una red puede clasificar ejemplos con buena precisión y aun así chocar?
 
 Porque la precisión solo mide si la red copia bien la regla de las etiquetas, no si esa regla sirve en el juego. Si la ventana está mal escogida para la física (como 25-35) la red puede tener 99% de precisión y chocar siempre, porque aprendió muy bien algo que está mal. También importa en qué ejemplos se equivoca: en el juego solo importa el momento justo en que tiene que saltar, y un error ahí es un choque aunque el resto de ejemplos estén bien. Eso pasó con la tasa 0.01, que tenía 86.5% pero saltaba tarde. Además la precisión se mide con datos sintéticos que se reparten distinto a lo que pasa en el juego, donde la red decide fotograma por fotograma y solo cuenta la primera vez que pasa de 0.5.
+
+# Neurito 3.0: aprende a encontrar comida en un laberinto
+
+Para los experimentos usé los 716 pares de inicio y meta de prueba (los que no se usaron para entrenar) y para cada uno dejé que Neurito intentara llegar con el mismo límite del juego, 45 intentos. Conté cuántas veces llega a la comida, cuántas choca con paredes y cuántos pasos usa.
+
+## Experimentos
+
+### 1. Observa Neurito sin entrenar. ¿Por qué se atasca?
+
+Sin entrenar en red pura solo llegó en el 3.1% de los casos y chocó con paredes 36 veces en promedio por caso. La red sin entrenar da probabilidades casi iguales (la más alta en promedio es 0.30) y casi siempre elige arriba o abajo. El problema es que cuando choca contra una pared no se mueve, entonces la entrada a la red (mapa, posición y meta) es exactamente la misma y la red vuelve a elegir lo mismo. Se queda chocando con la misma pared hasta que se acaban los 45 intentos. De los fallos, 589 fueron así contra una pared y 105 fueron dando vueltas entre casillas.
+
+### 2. Entrena 100, 200 y 400 épocas. Compara pérdida, precisión y movimientos.
+
+| Épocas | Pérdida | Precisión entrenamiento | Precisión prueba | Llega (red pura) | Paredes por caso | Pasos cuando llega |
+|---|---|---|---|---|---|---|
+| 0 | - | 25.3% | 27.7% | 3.1% | 36.37 | 1.82 |
+| 100 | 0.1352 | 94.1% | 84.9% | 51.3% | 0.91 | 5.54 |
+| 200 | 0.0376 | 99.9% | 90.1% | 81.3% | 0.31 | 6.01 |
+| 400 | 0.0107 | 100% | 91.5% | 82.7% | 0.19 | 6.04 |
+
+Entre 100 y 200 épocas es donde más mejora, pasa de llegar la mitad de las veces a 81%. De 200 a 400 la pérdida sigue bajando y en entrenamiento ya tiene 100%, pero en prueba solo sube a 91.5% y llega casi igual (82.7%). Cuando llega usa casi el camino más corto (6 pasos, solo 0.04 más que el óptimo). Lo que pasa es que con 91.5% de precisión igual se equivoca en algún paso del camino, y como un camino tiene varios pasos basta un error para que se salga y empiece a dar vueltas. Por eso llega menos veces de lo que dice la precisión. Con 400 épocas casi todos los fallos (121) son por ciclos y solo 3 por paredes.
+
+### 3. Compara red pura frente a navegación asistida. ¿Qué parte corresponde al modelo y cuál a las reglas?
+
+| Épocas | Llega red pura | Llega asistido | Pasos de más en asistido |
+|---|---|---|---|
+| 0 | 3.1% | 87.8% | 11.52 |
+| 100 | 51.3% | 100% | 2.12 |
+| 200 | 81.3% | 100% | 0.74 |
+| 400 | 82.7% | 100% | 0.56 |
+
+Lo más llamativo es que el modo asistido llega el 87.8% de las veces sin entrenar nada. Eso muestra que las reglas solas (no ir contra paredes y castigar las casillas ya visitadas) ya sirven para explorar el laberinto casi como al azar hasta encontrar la comida, pero dando muchas vueltas (11.5 pasos de más). Lo que aporta el modelo es la dirección hacia la comida: con la red entrenada el asistido llega siempre y casi por el camino más corto (0.56 pasos de más). Entonces las reglas evitan los choques y los ciclos, y la red es la que sabe hacia dónde ir. El resultado de red pura es lo que de verdad aprendió el modelo.
+
+### 4. Cambia las 96 neuronas ocultas por 16, 32 o 128.
+
+| Ocultas | Pérdida | Precisión entrenamiento | Precisión prueba | Llega red pura | Llega asistido |
+|---|---|---|---|---|---|
+| 16 | 0.0342 | 99.4% | 87.2% | 74.3% | 100% |
+| 32 | 0.0161 | 100% | 89.2% | 78.4% | 100% |
+| 96 | 0.0107 | 100% | 91.5% | 82.7% | 100% |
+| 128 | 0.0103 | 100% | 90.8% | 85.3% | 100% |
+
+(400 épocas en todos)
+
+Todos casi memorizan el entrenamiento, pero con menos neuronas generalizan peor a los pares que no vieron. Con 16 baja a 87.2% en prueba y llega 74.3%. De 96 a 128 ya casi no cambia, la precisión hasta baja un poquito aunque llega un poco más. En asistido no se nota la diferencia porque las reglas tapan los errores.
+
+### 5. Cambia la tasa de aprendizaje 0.45 y observa si converge.
+
+| Tasa | Pérdida ép. 1 | Pérdida ép. 100 | Pérdida ép. 400 | Veces que subió la pérdida | Precisión prueba | Llega red pura |
+|---|---|---|---|---|---|---|
+| 0.01 | 1.3943 | 1.2474 | 0.6818 | 0 | 73.9% | 20.4% |
+| 0.1 | 1.3884 | 0.4438 | 0.1490 | 22 | 87.2% | 60.2% |
+| 0.45 | 1.3695 | 0.1352 | 0.0107 | 85 | 91.5% | 82.7% |
+| 1.0 | 1.3423 | 0.0270 | 0.0028 | 75 | 93.3% | 85.5% |
+| 2.0 | 1.3116 | 0.0072 | 0.0011 | 20 | 93.3% | 85.6% |
+| 4.0 | 1.4149 | 0.3255 | 0.4660 | 199 | 79.7% | 38.0% |
+
+Con 0.01 converge pero demasiado lento, a las 400 épocas sigue en 0.68. Con 0.45, 1 y 2 sí converge. Aquí la pérdida sube a veces porque se entrena con mini-lotes, pero en general baja bien. Me sorprendió que 1 y 2 funcionaran mejor que 0.45 en este caso. Con 4 ya no converge, la pérdida subió en 199 de 400 épocas y al final quedó más alta que en la época 100.
+
+### 6. Cambia de mapa.
+
+| Mapa | Casos de prueba | Precisión prueba | Llega red pura | Llega asistido |
+|---|---|---|---|---|
+| 1 | 210 | 92.4% | 85.7% | 100% |
+| 2 | 251 | 90.0% | 78.5% | 100% |
+| 3 | 255 | 92.2% | 84.3% | 100% |
+
+Los tres funcionan parecido porque la red entrenó con los tres mapas, solo que no con esos pares de inicio y meta. El mapa 2 es el más difícil, tiene más paredes sueltas en el medio y más caminos parecidos, y ahí la red se equivoca más. Esto no prueba que funcione en un laberinto nuevo, porque la red no ve las paredes, solo sabe el número del mapa.
+
+### 7. Cambiar BFS por DFS y A*
+
+Hice los profesores con DFS y A* (A* con distancia Manhattan) y entrené la red igual, 400 épocas.
+
+| Profesor | Etiquetas iguales a BFS | Camino del profesor es el más corto | Precisión prueba | Llega red pura | Llega asistido | Pasos de más (asistido) |
+|---|---|---|---|---|---|---|
+| BFS | 100% | siempre | 91.5% | 82.7% | 100% | 0.56 |
+| DFS | 50.2% | 7.7% de los casos | 99.9% | 7.5% | 44.8% | 13.30 |
+| A* | 96.2% | siempre | 92.6% | 86.3% | 100% | 0.44 |
+
+Con A* Neurito queda igual o un poquito mejor. A* también encuentra el camino más corto, la única diferencia con BFS es cómo desempata cuando hay dos caminos igual de cortos (por eso el 3.8% de etiquetas distintas), y parece que sus desempates son más fáciles de aprender.
+
+Con DFS empeora muchísimo. DFS no busca el camino más corto, toma el primero que encuentra explorando siempre en el mismo orden (arriba primero). Casi el 55% de sus etiquetas son "arriba". Lo raro es que la red tiene 99.9% de precisión en prueba, aprende DFS casi perfecto, pero solo llega el 7.5% de las veces. Es porque si sigues DFS paso a paso recalculando desde cada casilla, el mismo DFS se queda dando vueltas: solo llegó en el 7.7% de los casos. O sea la red copió muy bien a un mal profesor. Esto es otro ejemplo de que la precisión alta no significa que resuelva el problema, depende de qué tan buenas son las etiquetas.
